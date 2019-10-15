@@ -1,0 +1,305 @@
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+        <title>Project</title>
+        <script>
+            var gl;
+            var model;
+            var program;
+            var a_coords_location;
+            var bufferInd;
+            var a_texCoords_location;
+            var a_coords_buffer;
+            var a_texCoords_buffer;
+            var textureObject;
+            var u_sampler_texture_location;
+            var u_matrix_rotateX_location;      
+            var u_matrix_rotateY_location;      
+            var theta = 0;
+            var indices;
+            var u_trans_x_location;
+            var u_trans_y_location;
+            var u_trans_x=0;
+            var u_trans_y=0;
+            var thetaX=0;
+            var thetaY=0;
+            var mouseAnimate=false;
+            var vertexShaderSource=
+                `attribute vec3 a_coords;
+                attribute vec2 a_texCoords;
+                varying vec2 v_texCoords;
+                uniform mat4 u_Rx;
+                uniform mat4 u_Ry;
+                uniform float u_trans_x;
+                uniform float u_trans_y;
+                void main(){
+                    mat4 M = u_Ry*u_Rx;
+                    gl_Position = M*vec4(a_coords.x+u_trans_x,a_coords.y+u_trans_y,a_coords.z, 1.0);
+                    v_texCoords = a_texCoords;
+                }`;
+            var fragmentShaderSource=
+                `precision mediump float;
+                varying vec2 v_texCoords;
+                uniform sampler2D u_sampler_texture;
+                void main(){
+                    gl_FragColor = texture2D(u_sampler_texture, v_texCoords);
+                }`;
+            var loadTextResource = function (url, callback) {
+                var request = new XMLHttpRequest();
+                request.open('GET', url + '?please-dont-cache=' + Math.random(), true);
+                request.onload = function () {
+                    if (request.status < 200 || request.status > 299) {
+                        callback('Error: HTTP Status ' + request.status + ' on resource ' + url);
+                    } else {
+                        callback(null, request.responseText);
+                    }
+                };
+                request.send();
+            };
+            var loadJSONResource = function (url, callback) {
+                loadTextResource(url, function (err, result) {
+                    if (err) {
+                        callback(err);
+                    } else {
+                        try {
+                            callback(null, JSON.parse(result));
+                        } catch (e) {
+                            callback(e);
+                        }
+                    }
+                });
+            };
+            loadJSONResource('/model.json', function (modelErr, modelObj) {
+                if (modelErr) {
+                    console.error(modelErr);
+                } else {
+                    model=modelObj;
+                    console.log(model);
+                    draw();
+                }
+            });
+                      
+            function draw(){
+                gl.clearColor(0.0,0.6,0.6,1);
+                gl.enable(gl.DEPTH_TEST);
+                gl.enable(gl.CULL_FACE);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                gl.enable ( gl.BLEND ) ;
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                var vertices = model.meshes[0].vertices;
+                for(var i=0;i<vertices.length;i++){
+                    vertices[i]=vertices[i]/30.0;
+                }
+                indices = [].concat.apply([], model.meshes[0].faces);
+                var texCoords = model.meshes[0].texturecoords[0];
+
+                var rad = thetaX*Math.PI/180;
+                var rotateMatX = new Float32Array( [1.0,  0.0,            0.0,            0.0,
+                                                    0.0,  Math.cos(rad),  Math.sin(rad),  0.0,
+                                                    0.0, -Math.sin(rad),  Math.cos(rad),  0.0,
+                                                    0.0,  0.0,            0.0,            1.0] );
+
+                var rad = thetaY*Math.PI/180;
+                var rotateMatY = new Float32Array( [Math.cos(rad),  0.0,  Math.sin(rad),  0.0,
+                                                    0.0,            1.0,  0.0,            0.0,
+                                                    -Math.sin(rad),  0.0,  Math.cos(rad),  0.0,
+                                                    0.0,            0.0,  0.0,            1.0] );
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, a_coords_buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(a_coords_location,3,gl.FLOAT,gl.FALSE,3 * Float32Array.BYTES_PER_ELEMENT,0);
+                gl.enableVertexAttribArray(a_coords_location);
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, a_texCoords_buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+                gl.vertexAttribPointer(a_texCoords_location,2,gl.FLOAT,gl.FALSE,2 * Float32Array.BYTES_PER_ELEMENT,0);
+                gl.enableVertexAttribArray(a_texCoords_location);
+
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufferInd);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+                gl.uniformMatrix4fv(u_matrix_rotateX_location, false, rotateMatX);
+                gl.uniformMatrix4fv(u_matrix_rotateY_location, false, rotateMatY);
+
+                gl.uniform1i( u_sampler_texture_location, 0);
+                gl.uniform1f(u_trans_x_location,u_trans_x);
+                gl.uniform1f(u_trans_y_location,u_trans_y);
+                gl.bindTexture(gl.TEXTURE_2D, textureObject);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+                animate(0);
+            }
+            function createProgram(){
+                var vsh = gl.createShader(gl.VERTEX_SHADER);
+                var fsh = gl.createShader(gl.FRAGMENT_SHADER);
+                gl.shaderSource(vsh, vertexShaderSource);
+                gl.shaderSource(fsh, fragmentShaderSource);
+                gl.compileShader(vsh);
+                gl.compileShader(fsh);
+                var prog = gl.createProgram();
+                gl.attachShader(prog, vsh);
+                gl.attachShader(prog, fsh);
+                gl.linkProgram(prog);
+                return prog;
+            }
+            function loadTexture(textureObject, imageID) {
+                gl.bindTexture(gl.TEXTURE_2D, textureObject);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, document.getElementById("image1"));
+                gl.bindTexture(gl.TEXTURE_2D, null);
+            }
+            function initGL(){
+                program=createProgram();
+                gl.useProgram(program);
+                a_coords_location=gl.getAttribLocation(program,"a_coords");
+                a_texCoords_location=gl.getAttribLocation(program,"a_texCoords");
+                u_sampler_texture_location=gl.getUniformLocation(program,"u_sampler_texture");
+                u_matrix_rotateX_location = gl.getUniformLocation(program, "u_Rx");
+                u_matrix_rotateY_location = gl.getUniformLocation(program, "u_Ry");
+                u_trans_x_location = gl.getUniformLocation(program, "u_trans_x");
+                u_trans_y_location = gl.getUniformLocation(program, "u_trans_y");
+                a_coords_buffer=gl.createBuffer();
+                a_texCoords_buffer=gl.createBuffer();
+                bufferInd=gl.createBuffer();
+                textureObject = gl.createTexture();
+                loadTexture(textureObject, "image1");
+            }
+            var THETA = 0,PHI = 0;
+            var time_old = 0;
+            var AMORTIZATION = 0.95;
+            var drag = false;
+            var old_x, old_y;
+            var dX = 0, dY = 0;
+
+            var mouseDown = function(e) {
+                drag = true;
+                old_x = e.pageX, old_y = e.pageY;
+                e.preventDefault();
+                return false;
+            };
+
+            var mouseUp = function(e){
+                drag = false;
+            };
+
+            var mouseMove = function(e) {
+                if (!drag) return false;
+                dX = (e.pageX-old_x)*2*Math.PI/800,
+                dY = (e.pageY-old_y)*2*Math.PI/600;
+                THETA+= dX;
+                PHI+=dY;
+                old_x = e.pageX, old_y = e.pageY;
+                e.preventDefault();
+            };
+            var animate = function(time) {
+                if(mouseAnimate){
+                    var dt = time-time_old;
+                    if (!drag) {
+                        dX *= AMORTIZATION, dY*=AMORTIZATION;
+                        THETA+=dX, PHI+=dY;
+                    }
+                    var rad = PHI;
+                    var rotateMatX = new Float32Array( [1.0,  0.0,            0.0,            0.0,
+                                                        0.0,  Math.cos(rad),  Math.sin(rad),  0.0,
+                                                        0.0, -Math.sin(rad),  Math.cos(rad),  0.0,
+                                                        0.0,  0.0,            0.0,            1.0] );
+
+                    var rad = THETA;
+                    var rotateMatY = new Float32Array( [Math.cos(rad),  0.0,  Math.sin(rad),  0.0,
+                                                        0.0,            1.0,  0.0,            0.0,
+                                                        -Math.sin(rad),  0.0,  Math.cos(rad),  0.0,
+                                                        0.0,            0.0,  0.0,            1.0] );
+                    time_old = time; 
+                    gl.enable(gl.DEPTH_TEST);
+                    gl.clearColor(0.0,0.6,0.6,1);
+                    gl.clearDepth(1.0);
+                    gl.viewport(0.0, 0.0, 800,600);
+                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+                    gl.uniformMatrix4fv(u_matrix_rotateX_location, false, rotateMatX);
+                    gl.uniformMatrix4fv(u_matrix_rotateY_location, false, rotateMatY);
+                    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+                }
+
+                window.requestAnimationFrame(animate);
+            }
+            function keyDownHandler(event) {
+                gl.clearColor(0.0,0.6,0.6,1);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                var e=String.fromCharCode(event.keyCode);
+                console.log(e);
+                if(event.keyCode == 39) { //right
+                    u_trans_x+=0.1;
+                    gl.uniform1f(u_trans_x_location,u_trans_x);
+                }
+                else if(event.keyCode == 37) { //left
+                    u_trans_x-=0.1;
+                    gl.uniform1f(u_trans_x_location,u_trans_x);
+                }
+                if(event.keyCode == 40) { //down
+                    u_trans_y-=0.1;
+                    gl.uniform1f(u_trans_y_location,u_trans_y);
+                }
+                else if(event.keyCode == 38) { //up
+                    u_trans_y+=0.1;
+                    gl.uniform1f(u_trans_y_location,u_trans_y);
+                }else if(e=="R") {
+                    thetaX = thetaX + 10.0;
+                    if (thetaX >= 360) {
+                        thetaX = 0.0;
+                    }
+                    var rad = thetaX*Math.PI/180;
+                    var rotateMatX = new Float32Array( [1.0,  0.0,            0.0,            0.0,
+                                       0.0,  Math.cos(rad),  Math.sin(rad),  0.0,
+                                       0.0, -Math.sin(rad),  Math.cos(rad),  0.0,
+                                       0.0,  0.0,            0.0,            1.0] );
+                    gl.uniformMatrix4fv(u_matrix_rotateX_location, false, rotateMatX);
+                }else if(e=="P") {
+                    thetaY = thetaY + 10.0;
+                    if (thetaY >= 360) {
+                        thetaY = 0.0;
+                    }
+                    var rad = thetaY*Math.PI/180;
+                    var rotateMatY = new Float32Array( [Math.cos(rad),  0.0,  Math.sin(rad),  0.0,
+                                                    0.0,            1.0,  0.0,            0.0,
+                                                    -Math.sin(rad),  0.0,  Math.cos(rad),  0.0,
+                                                    0.0,            0.0,  0.0,            1.0] );
+                    gl.uniformMatrix4fv(u_matrix_rotateY_location, false, rotateMatY);
+                }else if(e=="C") {
+                    mouseAnimate=true;
+                }else if(e=="D") {
+                    mouseAnimate=false;
+                }
+                gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+            }
+            function init(){
+                var canvas=document.getElementById("webglcanvas");
+                gl=canvas.getContext("webgl");
+                canvas.addEventListener("mousedown", mouseDown, false);
+                canvas.addEventListener("mouseup", mouseUp, false);
+                canvas.addEventListener("mouseout", mouseUp, false);
+                canvas.addEventListener("mousemove", mouseMove, false);
+                document.addEventListener('keydown', keyDownHandler, false);
+                initGL();
+            }
+        </script>
+    </head>
+    <body onload="init();">
+        <canvas width="800" height="600" id="webglcanvas"></canvas>
+        <img id="image1" src="ship.png" width="0" height="0">
+        <div style="float: right;">
+            <p>UP: Move ship upwards</p>
+            <p>DOWN: Move ship downwards</p>
+            <p>RIGHT: Move ship to the right side</p>
+            <p>LEFT: Move ship to the left side</p>
+            <p>R: Rotate around Y axes</p>
+            <p>P: Rotate around X axes</p>
+            <p>C: Enable mouse rotate</p>
+            <p>D: Disable mouse rotate</p>
+        </div>
+    </body>
+</html>
